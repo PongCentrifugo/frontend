@@ -28,6 +28,10 @@ function App() {
     secondScore: 0,
     ballX: 187.5,
     ballY: 123,
+    ballVx: 0,
+    ballVy: 0,
+    ballAuthorityPlace: null, // who is currently broadcasting ball state
+    ballAuthorityAtMs: 0,
   })
 
   // Keep ref in sync with state
@@ -219,10 +223,14 @@ function App() {
             secondPaddleY: event.data.place === 'second' ? event.data.paddle_y : prev.secondPaddleY,
           }
           
-          // Sync ball position from first player's move events
+          // Sync ball position from whoever is broadcasting ball state.
           if (event.data.ball_x !== undefined && event.data.ball_y !== undefined) {
             updated.ballX = event.data.ball_x
             updated.ballY = event.data.ball_y
+            if (event.data.ball_vx !== undefined) updated.ballVx = event.data.ball_vx
+            if (event.data.ball_vy !== undefined) updated.ballVy = event.data.ball_vy
+            updated.ballAuthorityPlace = event.data.place
+            updated.ballAuthorityAtMs = Date.now()
           }
           
           return updated
@@ -264,6 +272,8 @@ function App() {
           secondScore: 0,
           firstPaddleY: 115,
           secondPaddleY: 115,
+          ballAuthorityPlace: null,
+          ballAuthorityAtMs: 0,
         }))
         break
     }

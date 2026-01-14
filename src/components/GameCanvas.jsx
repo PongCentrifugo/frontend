@@ -7,6 +7,22 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
   const [scale, setScale] = useState(1)
   const keysPressed = useRef(new Set())
   const lastMoveTime = useRef(0)
+  const [authorityPulse, setAuthorityPulse] = useState(0)
+
+  // Keep latest state in refs so we don't restart loops on every update.
+  const gameDataRef = useRef(gameData)
+  const myPlaceRef = useRef(myPlace)
+  const isSpectatorRef = useRef(isSpectator)
+
+  useEffect(() => {
+    gameDataRef.current = gameData
+  }, [gameData])
+  useEffect(() => {
+    myPlaceRef.current = myPlace
+  }, [myPlace])
+  useEffect(() => {
+    isSpectatorRef.current = isSpectator
+  }, [isSpectator])
   
   // Ball state (only first player simulates)
   const ballState = useRef({
@@ -18,12 +34,45 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
     lastUpdate: Date.now()
   })
 
+  const isBallAuthority = (() => {
+    if (isSpectator) return false
+    if (!myPlace) return false
+    // If someone is actively broadcasting ball state, follow them.
+    if (gameData.ballAuthorityPlace && gameData.ballAuthorityAtMs) {
+      const expired = Date.now() - gameData.ballAuthorityAtMs > 250
+      return gameData.ballAuthorityPlace === myPlace || expired
+    }
+    // Default authority is the first player (initial game).
+    return myPlace === 'first'
+  })()
+
+  // Re-evaluate authority expiry even if no events arrive.
+  useEffect(() => {
+    if (isSpectator || !myPlace) return
+    const id = setInterval(() => setAuthorityPulse((p) => p + 1), 100)
+    return () => clearInterval(id)
+  }, [isSpectator, myPlace])
+
+  // Keep authority in a ref for long-lived loops (render loop).
+  const isBallAuthorityRef = useRef(isBallAuthority)
+  useEffect(() => {
+    isBallAuthorityRef.current = isBallAuthority
+    // authorityPulse is intentionally used to cause periodic re-evaluation above
+  }, [isBallAuthority, authorityPulse])
+
   // Interpolated ball position for smooth rendering (Player 2 and spectators)
   const ballDisplay = useRef({
     x: GAME_CONFIG.PLAYFIELD_WIDTH / 2,
     y: GAME_CONFIG.PLAYFIELD_HEIGHT / 2,
     targetX: GAME_CONFIG.PLAYFIELD_WIDTH / 2,
     targetY: GAME_CONFIG.PLAYFIELD_HEIGHT / 2,
+    // Source snapshot for simple prediction
+    srcX: GAME_CONFIG.PLAYFIELD_WIDTH / 2,
+    srcY: GAME_CONFIG.PLAYFIELD_HEIGHT / 2,
+    srcVx: 0,
+    srcVy: 0,
+    srcAtMs: Date.now(),
+    hasEverSynced: false,
   })
 
   // Calculate canvas size with 30% side margins and 20% top/bottom margins
@@ -83,6 +132,33 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
     }, 1000)
   }, [])
 
+  // If we become the ball authority (e.g., other tab got throttled), initialize from last known state.
+  const wasAuthorityRef = useRef(false)
+  useEffect(() => {
+    if (!isBallAuthority) {
+      wasAuthorityRef.current = false
+      return
+    }
+    if (wasAuthorityRef.current) return
+    wasAuthorityRef.current = true
+
+    // Seed from the last received snapshot if available; otherwise reset.
+    if (gameData.ballX !== undefined && gameData.ballY !== undefined) {
+      const vx = gameData.ballVx ?? 0
+      const vy = gameData.ballVy ?? 0
+      ballState.current = {
+        x: gameData.ballX,
+        y: gameData.ballY,
+        vx: vx === 0 && vy === 0 ? 3 : vx,
+        vy,
+        active: true,
+        lastUpdate: Date.now(),
+      }
+    } else {
+      resetBall()
+    }
+  }, [isBallAuthority, gameData.ballX, gameData.ballY, gameData.ballVx, gameData.ballVy])
+
   // Reset ball when score changes (goal was scored)
   const prevScore = useRef(gameData.firstScore + gameData.secondScore)
   useEffect(() => {
@@ -100,31 +176,40 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
   // Sync ball position from gameData for non-first players
   useEffect(() => {
     if (myPlace !== 'first' && gameData.ballX !== undefined && gameData.ballY !== undefined) {
-      // Update target position for interpolation
-      ballDisplay.current.targetX = gameData.ballX
-      ballDisplay.current.targetY = gameData.ballY
-      
-      // On first update, snap to position (avoid interpolating from center)
-      const isFirstUpdate = ballDisplay.current.x === GAME_CONFIG.PLAYFIELD_WIDTH / 2 && 
-                           ballDisplay.current.y === GAME_CONFIG.PLAYFIELD_HEIGHT / 2
-      if (isFirstUpdate) {
-        ballDisplay.current.x = gameData.ballX
-        ballDisplay.current.y = gameData.ballY
+      const now = Date.now()
+      const d = ballDisplay.current
+      d.srcX = gameData.ballX
+      d.srcY = gameData.ballY
+      d.srcVx = gameData.ballVx ?? 0
+      d.srcVy = gameData.ballVy ?? 0
+      d.srcAtMs = now
+
+      // On first sync, snap immediately to avoid "ball in center" artifact.
+      if (!d.hasEverSynced) {
+        d.x = gameData.ballX
+        d.y = gameData.ballY
+        d.hasEverSynced = true
       }
     }
-  }, [myPlace, gameData.ballX, gameData.ballY])
+  }, [myPlace, gameData.ballX, gameData.ballY, gameData.ballVx, gameData.ballVy])
 
   // Smooth interpolation loop for Player 2 and spectators
   useEffect(() => {
     if (myPlace === 'first') return // First player doesn't need interpolation
 
     const interval = setInterval(() => {
-      const display = ballDisplay.current
-      const lerpFactor = 0.3 // Higher = faster catch-up (0.3 = smooth)
+      const d = ballDisplay.current
 
-      // Lerp towards target position
-      display.x += (display.targetX - display.x) * lerpFactor
-      display.y += (display.targetY - display.y) * lerpFactor
+      // Predict current position from last received snapshot.
+      const dtMs = Date.now() - d.srcAtMs
+      const dtTicks = dtMs / (1000 / 60) // vx/vy are in "blocks per 60Hz tick"
+      d.targetX = d.srcX + d.srcVx * dtTicks
+      d.targetY = d.srcY + d.srcVy * dtTicks
+
+      // Smoothly approach the predicted target.
+      const lerpFactor = 0.35
+      d.x += (d.targetX - d.x) * lerpFactor
+      d.y += (d.targetY - d.y) * lerpFactor
     }, GAME_CONFIG.TICK_RATE)
 
     return () => clearInterval(interval)
@@ -133,8 +218,7 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
   // Ball physics loop (ONLY first player - others sync from move events)
   // Using setInterval instead of requestAnimationFrame so it runs even when tab is inactive
   useEffect(() => {
-    // Only first player simulates ball physics
-    if (myPlace !== 'first') return
+    if (!isBallAuthority) return
 
     const interval = setInterval(() => {
       const ball = ballState.current
@@ -154,7 +238,7 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
 
       // Collision with left paddle (first player)
       const leftPaddleX = PADDLE_OFFSET_X
-      const leftPaddleY = gameData.firstPaddleY
+      const leftPaddleY = gameDataRef.current.firstPaddleY
       
       if (ball.x <= leftPaddleX + PADDLE_WIDTH &&
           ball.x + BALL_WIDTH >= leftPaddleX &&
@@ -167,7 +251,7 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
 
       // Collision with right paddle (second player)
       const rightPaddleX = PLAYFIELD_WIDTH - PADDLE_OFFSET_X - PADDLE_WIDTH
-      const rightPaddleY = gameData.secondPaddleY
+      const rightPaddleY = gameDataRef.current.secondPaddleY
       
       if (ball.x + BALL_WIDTH >= rightPaddleX &&
           ball.x <= rightPaddleX + PADDLE_WIDTH &&
@@ -191,7 +275,7 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
     }, GAME_CONFIG.TICK_RATE)
 
     return () => clearInterval(interval)
-  }, [myPlace, isSpectator, gameData])
+  }, [isBallAuthority])
 
   // Paddle control loop
   useEffect(() => {
@@ -217,19 +301,20 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
   // Ball position broadcast (only first player)
   const lastBallBroadcast = useRef(0)
   useEffect(() => {
-    if (myPlace !== 'first' || isSpectator) return
+    if (!isBallAuthority) return
 
     const interval = setInterval(() => {
       const now = Date.now()
-      // Broadcast ball position every 100ms (10Hz) even without paddle movement
-      if (now - lastBallBroadcast.current >= 100 && ballState.current.active) {
+      // Broadcast ball state frequently so non-first clients can predict smoothly.
+      // (Even if dy=0)
+      if (now - lastBallBroadcast.current >= 33 && ballState.current.active) {
         sendMove(0) // Send with dy=0 to just update ball position
         lastBallBroadcast.current = now
       }
-    }, 50)
+    }, 16)
 
     return () => clearInterval(interval)
-  }, [myPlace, isSpectator])
+  }, [isBallAuthority])
 
   const sendMove = async (dy) => {
     if (!centrifuge) return
@@ -241,9 +326,11 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
         client_ts_ms: Date.now(),
       }
       
-      if (myPlace === 'first') {
+      if (isBallAuthority) {
         params.ball_x = ballState.current.x
         params.ball_y = ballState.current.y
+        params.ball_vx = ballState.current.vx
+        params.ball_vy = ballState.current.vy
       }
       
       await centrifuge.rpc('pong.move', params)
@@ -297,6 +384,10 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
     const { PLAYFIELD_WIDTH, PLAYFIELD_HEIGHT, PADDLE_WIDTH, PADDLE_HEIGHT, BALL_WIDTH, BALL_HEIGHT, NET_WIDTH, NET_DASH_HEIGHT, NET_DASH_SPACING, PADDLE_OFFSET_X } = GAME_CONFIG
 
     const render = () => {
+      const gd = gameDataRef.current
+      const place = myPlaceRef.current
+      const authority = isBallAuthorityRef.current
+
       // Clear
       ctx.fillStyle = '#000'
       ctx.fillRect(0, 0, PLAYFIELD_WIDTH, PLAYFIELD_HEIGHT)
@@ -312,7 +403,7 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
       // First player (left)
       ctx.fillRect(
         PADDLE_OFFSET_X,
-        gameData.firstPaddleY,
+        gd.firstPaddleY,
         PADDLE_WIDTH,
         PADDLE_HEIGHT
       )
@@ -320,14 +411,14 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
       // Second player (right)
       ctx.fillRect(
         PLAYFIELD_WIDTH - PADDLE_OFFSET_X - PADDLE_WIDTH,
-        gameData.secondPaddleY,
+        gd.secondPaddleY,
         PADDLE_WIDTH,
         PADDLE_HEIGHT
       )
 
       // Ball - first player uses physics simulation, others use interpolated display
-      const ballX = myPlace === 'first' ? ballState.current.x : ballDisplay.current.x
-      const ballY = myPlace === 'first' ? ballState.current.y : ballDisplay.current.y
+      const ballX = authority ? ballState.current.x : ballDisplay.current.x
+      const ballY = authority ? ballState.current.y : ballDisplay.current.y
       
       ctx.fillRect(
         ballX,
@@ -342,19 +433,28 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
       ctx.textBaseline = 'top'
       
       // First player score (left)
-      ctx.fillText(gameData.firstScore.toString(), PLAYFIELD_WIDTH / 4, 20)
+      ctx.fillText(gd.firstScore.toString(), PLAYFIELD_WIDTH / 4, 20)
       
       // Second player score (right)
-      ctx.fillText(gameData.secondScore.toString(), (PLAYFIELD_WIDTH / 4) * 3, 20)
+      ctx.fillText(gd.secondScore.toString(), (PLAYFIELD_WIDTH / 4) * 3, 20)
     }
 
-    const animationFrame = requestAnimationFrame(function loop() {
-      render()
-      requestAnimationFrame(loop)
-    })
+    let rafId = 0
+    let stopped = false
 
-    return () => cancelAnimationFrame(animationFrame)
-  }, [gameData])
+    const loop = () => {
+      if (stopped) return
+      render()
+      rafId = requestAnimationFrame(loop)
+    }
+
+    rafId = requestAnimationFrame(loop)
+
+    return () => {
+      stopped = true
+      cancelAnimationFrame(rafId)
+    }
+  }, [])
 
   const width = GAME_CONFIG.PLAYFIELD_WIDTH
   const height = GAME_CONFIG.PLAYFIELD_HEIGHT
