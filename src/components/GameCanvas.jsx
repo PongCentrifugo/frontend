@@ -89,6 +89,14 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
     prevScore.current = currentScore
   }, [gameData.firstScore, gameData.secondScore])
 
+  // Sync ball position from gameData for non-first players
+  useEffect(() => {
+    if (myPlace !== 'first' && gameData.ballX !== undefined && gameData.ballY !== undefined) {
+      ballState.current.x = gameData.ballX
+      ballState.current.y = gameData.ballY
+    }
+  }, [myPlace, gameData.ballX, gameData.ballY])
+
   // Ball physics loop (all players simulate deterministically)
   // Using setInterval instead of requestAnimationFrame so it runs even when tab is inactive
   useEffect(() => {
@@ -134,17 +142,17 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
         ball.x = rightPaddleX - BALL_WIDTH
       }
 
-      // Goal detection (only first player reports)
+      // Goal detection (both players can report - backend will handle duplicates)
       if (ball.x < 0) {
         // Second player scored
         ball.active = false
-        if (myPlace === 'first' && !isSpectator) {
+        if (!isSpectator) {
           sendGoal('second')
         }
       } else if (ball.x + BALL_WIDTH > PLAYFIELD_WIDTH) {
         // First player scored
         ball.active = false
-        if (myPlace === 'first' && !isSpectator) {
+        if (!isSpectator) {
           sendGoal('first')
         }
       }
@@ -178,10 +186,18 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
     if (!centrifuge) return
 
     try {
-      await centrifuge.rpc('pong.move', {
+      // First player includes ball position for synchronization
+      const params = {
         dy,
         client_ts_ms: Date.now(),
-      })
+      }
+      
+      if (myPlace === 'first') {
+        params.ball_x = ballState.current.x
+        params.ball_y = ballState.current.y
+      }
+      
+      await centrifuge.rpc('pong.move', params)
     } catch (error) {
       console.error('Move error:', JSON.stringify(error))
     }
@@ -260,10 +276,13 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
         PADDLE_HEIGHT
       )
 
-      // Ball (all players simulate the same physics)
+      // Ball - first player uses local simulation, others sync from gameData
+      const ballX = myPlace === 'first' ? ballState.current.x : (gameData.ballX || ballState.current.x)
+      const ballY = myPlace === 'first' ? ballState.current.y : (gameData.ballY || ballState.current.y)
+      
       ctx.fillRect(
-        ballState.current.x,
-        ballState.current.y,
+        ballX,
+        ballY,
         BALL_WIDTH,
         BALL_HEIGHT
       )

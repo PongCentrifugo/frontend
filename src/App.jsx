@@ -212,11 +212,21 @@ function App() {
         break
         
       case 'move':
-        setGameData(prev => ({
-          ...prev,
-          firstPaddleY: event.data.place === 'first' ? event.data.paddle_y : prev.firstPaddleY,
-          secondPaddleY: event.data.place === 'second' ? event.data.paddle_y : prev.secondPaddleY,
-        }))
+        setGameData(prev => {
+          const updated = {
+            ...prev,
+            firstPaddleY: event.data.place === 'first' ? event.data.paddle_y : prev.firstPaddleY,
+            secondPaddleY: event.data.place === 'second' ? event.data.paddle_y : prev.secondPaddleY,
+          }
+          
+          // Sync ball position from first player's move events
+          if (event.data.ball_x !== undefined && event.data.ball_y !== undefined) {
+            updated.ballX = event.data.ball_x
+            updated.ballY = event.data.ball_y
+          }
+          
+          return updated
+        })
         break
         
       case 'goal':
