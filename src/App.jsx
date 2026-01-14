@@ -69,6 +69,36 @@ function App() {
   useEffect(() => {
     if (!centrifuge) return
 
+    const refreshStatus = async () => {
+      try {
+        const res = await fetch(`${API_CONFIG.BACKEND_URL}/v1/games/status`, { method: 'GET' })
+        if (!res.ok) return
+        const status = await res.json()
+
+        setLobbyStatus({
+          firstTaken: !!status.first_connected,
+          secondTaken: !!status.second_connected,
+          gameStarted: !!status.game_started,
+        })
+        setGameData(prev => ({
+          ...prev,
+          firstPaddleY: status.first_paddle_y ?? prev.firstPaddleY,
+          secondPaddleY: status.second_paddle_y ?? prev.secondPaddleY,
+          firstScore: status.first_score ?? prev.firstScore,
+          secondScore: status.second_score ?? prev.secondScore,
+        }))
+
+        const place = myPlaceRef.current
+        if (status.game_started) {
+          setGameState(place ? 'playing' : 'spectating')
+        } else {
+          setGameState('lobby')
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
     // Check if subscription already exists
     let sub = centrifuge.getSubscription(CHANNELS.PUBLIC)
     if (sub) {
@@ -78,8 +108,11 @@ function App() {
       sub.history({ limit: 10 }).then(historyResult => {
         const history = historyResult.publications || []
         processHistory(history)
+        // History might not include game_started if it's old/evicted. Ask backend for current status.
+        refreshStatus()
       }).catch(err => {
         console.error('Failed to get history for existing sub:', err)
+        refreshStatus()
       })
       return
     }
@@ -96,9 +129,11 @@ function App() {
         const historyResult = await sub.history({ limit: 10 })
         const history = historyResult.publications || []
         processHistory(history)
+        refreshStatus()
       } catch (err) {
         console.error('Failed to get history:', err)
-        setGameState('lobby')
+        // Fallback to backend status for late-joining spectators.
+        refreshStatus()
       }
     })
 

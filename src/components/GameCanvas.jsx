@@ -34,6 +34,8 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
     lastUpdate: Date.now()
   })
 
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v))
+
   const isBallAuthority = (() => {
     if (isSpectator) return false
     if (!myPlace) return false
@@ -126,11 +128,17 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
 
   // Initialize ball when game starts
   useEffect(() => {
-    // Start ball after a short delay
-    setTimeout(() => {
+    if (!isBallAuthority) return
+    // Start ball after a short delay (only the current authority).
+    const id = setTimeout(() => {
+      if (!isBallAuthorityRef.current) return
+      if (ballState.current.active) return
       resetBall()
-    }, 1000)
-  }, [])
+      // Immediately broadcast new round state (position + velocity) so others move correctly from frame 1.
+      sendMove(0)
+    }, 700)
+    return () => clearTimeout(id)
+  }, [isBallAuthority])
 
   // If we become the ball authority (e.g., other tab got throttled), initialize from last known state.
   const wasAuthorityRef = useRef(false)
@@ -164,11 +172,25 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
   useEffect(() => {
     const currentScore = gameData.firstScore + gameData.secondScore
     if (currentScore > prevScore.current) {
-      // Score increased, reset ball after delay
-      ballState.current.active = false
-      setTimeout(() => {
-        resetBall()
-      }, 1500)
+      // Only the authority should manage round transitions.
+      if (isBallAuthorityRef.current) {
+        // Freeze ball in center immediately, broadcast so everyone sees reset instantly.
+        ballState.current.active = false
+        ballState.current.x = GAME_CONFIG.PLAYFIELD_WIDTH / 2
+        ballState.current.y = GAME_CONFIG.PLAYFIELD_HEIGHT / 2
+        ballState.current.vx = 0
+        ballState.current.vy = 0
+        ballState.current.lastUpdate = Date.now()
+        sendMove(0)
+
+        // Start next round after a short delay, then broadcast new velocity immediately.
+        const id = setTimeout(() => {
+          if (!isBallAuthorityRef.current) return
+          resetBall()
+          sendMove(0)
+        }, 900)
+        return () => clearTimeout(id)
+      }
     }
     prevScore.current = currentScore
   }, [gameData.firstScore, gameData.secondScore])
@@ -225,6 +247,9 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
       if (!ball.active) return
 
       const { PLAYFIELD_WIDTH, PLAYFIELD_HEIGHT, PADDLE_WIDTH, PADDLE_HEIGHT, PADDLE_OFFSET_X, BALL_WIDTH, BALL_HEIGHT } = GAME_CONFIG
+      const MAX_BOUNCE_ANGLE = (75 * Math.PI) / 180
+      const SPEEDUP = 1.03
+      const MAX_SPEED = 9
 
       // Update position
       ball.x += ball.vx
@@ -245,7 +270,14 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
           ball.y + BALL_HEIGHT >= leftPaddleY &&
           ball.y <= leftPaddleY + PADDLE_HEIGHT &&
           ball.vx < 0) {
-        ball.vx = -ball.vx
+        // Classic Pong: reflection angle depends on where the ball hits the paddle.
+        const paddleCenter = leftPaddleY + PADDLE_HEIGHT / 2
+        const ballCenter = ball.y + BALL_HEIGHT / 2
+        const normalized = clamp((ballCenter - paddleCenter) / (PADDLE_HEIGHT / 2), -1, 1)
+        const angle = normalized * MAX_BOUNCE_ANGLE
+        const speed = clamp(Math.hypot(ball.vx, ball.vy) * SPEEDUP, 2.5, MAX_SPEED)
+        ball.vx = Math.abs(speed * Math.cos(angle)) // always to the right
+        ball.vy = speed * Math.sin(angle)
         ball.x = leftPaddleX + PADDLE_WIDTH
       }
 
@@ -258,7 +290,13 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
           ball.y + BALL_HEIGHT >= rightPaddleY &&
           ball.y <= rightPaddleY + PADDLE_HEIGHT &&
           ball.vx > 0) {
-        ball.vx = -ball.vx
+        const paddleCenter = rightPaddleY + PADDLE_HEIGHT / 2
+        const ballCenter = ball.y + BALL_HEIGHT / 2
+        const normalized = clamp((ballCenter - paddleCenter) / (PADDLE_HEIGHT / 2), -1, 1)
+        const angle = normalized * MAX_BOUNCE_ANGLE
+        const speed = clamp(Math.hypot(ball.vx, ball.vy) * SPEEDUP, 2.5, MAX_SPEED)
+        ball.vx = -Math.abs(speed * Math.cos(angle)) // always to the left
+        ball.vy = speed * Math.sin(angle)
         ball.x = rightPaddleX - BALL_WIDTH
       }
 
@@ -305,10 +343,14 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
 
     const interval = setInterval(() => {
       const now = Date.now()
-      // Broadcast ball state frequently so non-first clients can predict smoothly.
-      // (Even if dy=0)
-      if (now - lastBallBroadcast.current >= 33 && ballState.current.active) {
-        sendMove(0) // Send with dy=0 to just update ball position
+      // Keep authority "alive" even between rounds (ball inactive), so others never temporarily take over
+      // and never predict stale motion.
+      const ball = ballState.current
+      const activeIntervalMs = 33  // ~30Hz while moving
+      const idleIntervalMs = 100   // 10Hz while paused/resetting
+      const intervalMs = ball.active ? activeIntervalMs : idleIntervalMs
+      if (now - lastBallBroadcast.current >= intervalMs) {
+        sendMove(0)
         lastBallBroadcast.current = now
       }
     }, 16)
@@ -359,17 +401,19 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
   }
 
   const resetBall = () => {
-    const speed = 3
-    // Deterministic: alternate direction based on total score
+    const speed = GAME_CONFIG.BALL_SPEED
+    // Alternate serve direction based on total score (retro feel, deterministic).
     const totalScore = gameData.firstScore + gameData.secondScore
     const direction = totalScore % 2 === 0 ? 1 : -1
-    const angle = 0 // Straight horizontal for predictability
+    // Classic-ish serve: random small angle, never perfectly horizontal.
+    const maxServeAngle = (25 * Math.PI) / 180
+    const angle = (Math.random() * 2 - 1) * maxServeAngle
     
     ballState.current = {
       x: GAME_CONFIG.PLAYFIELD_WIDTH / 2,
       y: GAME_CONFIG.PLAYFIELD_HEIGHT / 2,
       vx: direction * speed * Math.cos(angle),
-      vy: speed * Math.sin(angle),
+      vy: speed * Math.sin(angle) || (Math.random() < 0.5 ? -0.5 : 0.5),
       active: true,
       lastUpdate: Date.now()
     }
