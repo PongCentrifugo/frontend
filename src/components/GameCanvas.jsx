@@ -7,6 +7,15 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
   const [scale, setScale] = useState(1)
   const keysPressed = useRef(new Set())
   const lastMoveTime = useRef(0)
+  
+  // Ball state (only first player simulates)
+  const ballState = useRef({
+    x: GAME_CONFIG.PLAYFIELD_WIDTH / 2,
+    y: GAME_CONFIG.PLAYFIELD_HEIGHT / 2,
+    vx: 0,
+    vy: 0,
+    active: false
+  })
 
   // Calculate canvas size with 30% side margins and 20% top/bottom margins
   useEffect(() => {
@@ -57,7 +66,93 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
     }
   }, [isSpectator])
 
-  // Game loop
+  // Initialize ball when game starts
+  useEffect(() => {
+    // Start ball after a short delay
+    setTimeout(() => {
+      resetBall()
+    }, 1000)
+  }, [])
+
+  // Reset ball when score changes (goal was scored)
+  const prevScore = useRef(gameData.firstScore + gameData.secondScore)
+  useEffect(() => {
+    const currentScore = gameData.firstScore + gameData.secondScore
+    if (currentScore > prevScore.current) {
+      // Score increased, reset ball after delay
+      ballState.current.active = false
+      setTimeout(() => {
+        resetBall()
+      }, 1500)
+    }
+    prevScore.current = currentScore
+  }, [gameData.firstScore, gameData.secondScore])
+
+  // Ball physics loop (all players simulate deterministically)
+  useEffect(() => {
+
+    const interval = setInterval(() => {
+      const ball = ballState.current
+      if (!ball.active) return
+
+      const { PLAYFIELD_WIDTH, PLAYFIELD_HEIGHT, PADDLE_WIDTH, PADDLE_HEIGHT, PADDLE_OFFSET_X, BALL_WIDTH, BALL_HEIGHT } = GAME_CONFIG
+
+      // Update position
+      ball.x += ball.vx
+      ball.y += ball.vy
+
+      // Collision with top/bottom walls
+      if (ball.y <= 0 || ball.y + BALL_HEIGHT >= PLAYFIELD_HEIGHT) {
+        ball.vy = -ball.vy
+        ball.y = Math.max(0, Math.min(ball.y, PLAYFIELD_HEIGHT - BALL_HEIGHT))
+      }
+
+      // Collision with left paddle (first player)
+      const leftPaddleX = PADDLE_OFFSET_X
+      const leftPaddleY = gameData.firstPaddleY
+      
+      if (ball.x <= leftPaddleX + PADDLE_WIDTH &&
+          ball.x + BALL_WIDTH >= leftPaddleX &&
+          ball.y + BALL_HEIGHT >= leftPaddleY &&
+          ball.y <= leftPaddleY + PADDLE_HEIGHT &&
+          ball.vx < 0) {
+        ball.vx = -ball.vx
+        ball.x = leftPaddleX + PADDLE_WIDTH
+      }
+
+      // Collision with right paddle (second player)
+      const rightPaddleX = PLAYFIELD_WIDTH - PADDLE_OFFSET_X - PADDLE_WIDTH
+      const rightPaddleY = gameData.secondPaddleY
+      
+      if (ball.x + BALL_WIDTH >= rightPaddleX &&
+          ball.x <= rightPaddleX + PADDLE_WIDTH &&
+          ball.y + BALL_HEIGHT >= rightPaddleY &&
+          ball.y <= rightPaddleY + PADDLE_HEIGHT &&
+          ball.vx > 0) {
+        ball.vx = -ball.vx
+        ball.x = rightPaddleX - BALL_WIDTH
+      }
+
+      // Goal detection (only first player reports)
+      if (ball.x < 0) {
+        // Second player scored
+        ball.active = false
+        if (myPlace === 'first' && !isSpectator) {
+          sendGoal('second')
+        }
+      } else if (ball.x + BALL_WIDTH > PLAYFIELD_WIDTH) {
+        // First player scored
+        ball.active = false
+        if (myPlace === 'first' && !isSpectator) {
+          sendGoal('first')
+        }
+      }
+    }, GAME_CONFIG.TICK_RATE)
+
+    return () => clearInterval(interval)
+  }, [myPlace, isSpectator, gameData])
+
+  // Paddle control loop
   useEffect(() => {
     if (isSpectator) return
 
@@ -82,14 +177,46 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
     if (!centrifuge) return
 
     try {
-      const result = await centrifuge.rpc('pong.move', {
+      await centrifuge.rpc('pong.move', {
         dy,
         client_ts_ms: Date.now(),
       })
-      
-      console.log('Move result:', result)
     } catch (error) {
-      console.error('Move error:', error)
+      console.error('Move error:', JSON.stringify(error))
+    }
+  }
+
+  const sendGoal = async (scoredBy) => {
+    if (!centrifuge) return
+
+    try {
+      const result = await centrifuge.rpc('pong.goal', {
+        scored_by: scoredBy,
+        client_ts_ms: Date.now(),
+      })
+      
+      if (result.data.game_ended) {
+        console.log('Game ended! Winner:', result.data.winner)
+      }
+      // Ball will be reset automatically when the goal event updates the score
+    } catch (error) {
+      console.error('Goal error:', error)
+    }
+  }
+
+  const resetBall = () => {
+    const speed = 3
+    // Deterministic: alternate direction based on total score
+    const totalScore = gameData.firstScore + gameData.secondScore
+    const direction = totalScore % 2 === 0 ? 1 : -1
+    const angle = 0 // Straight horizontal for predictability
+    
+    ballState.current = {
+      x: GAME_CONFIG.PLAYFIELD_WIDTH / 2,
+      y: GAME_CONFIG.PLAYFIELD_HEIGHT / 2,
+      vx: direction * speed * Math.cos(angle),
+      vy: speed * Math.sin(angle),
+      active: true
     }
   }
 
@@ -130,10 +257,10 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
         PADDLE_HEIGHT
       )
 
-      // Ball (centered for now, will move later)
+      // Ball (all players simulate the same physics)
       ctx.fillRect(
-        gameData.ballX || PLAYFIELD_WIDTH / 2 - BALL_WIDTH / 2,
-        gameData.ballY || PLAYFIELD_HEIGHT / 2 - BALL_HEIGHT / 2,
+        ballState.current.x,
+        ballState.current.y,
         BALL_WIDTH,
         BALL_HEIGHT
       )

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Centrifuge } from 'centrifuge'
 import { API_CONFIG, CHANNELS } from './config'
 import GameCanvas from './components/GameCanvas'
@@ -18,6 +18,7 @@ function App() {
   })
   
   const [myPlace, setMyPlace] = useState(null) // 'first' or 'second'
+  const myPlaceRef = useRef(null) // Keep ref in sync with state
   const [myUserId, setMyUserId] = useState(() => 'user_' + Math.random().toString(36).substr(2, 9))
   
   const [gameData, setGameData] = useState({
@@ -28,6 +29,11 @@ function App() {
     ballX: 187.5,
     ballY: 123,
   })
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    myPlaceRef.current = myPlace
+  }, [myPlace])
 
   // Initialize Centrifugo connection
   useEffect(() => {
@@ -62,8 +68,15 @@ function App() {
     // Check if subscription already exists
     let sub = centrifuge.getSubscription(CHANNELS.PUBLIC)
     if (sub) {
-      console.log('Subscription already exists, reusing')
       setPublicSub(sub)
+      
+      // Fetch history for existing subscription
+      sub.history({ limit: 10 }).then(historyResult => {
+        const history = historyResult.publications || []
+        processHistory(history)
+      }).catch(err => {
+        console.error('Failed to get history for existing sub:', err)
+      })
       return
     }
 
@@ -81,9 +94,8 @@ function App() {
         processHistory(history)
       } catch (err) {
         console.error('Failed to get history:', err)
+        setGameState('lobby')
       }
-      
-      setGameState('lobby')
     })
 
     sub.on('publication', (ctx) => {
@@ -101,6 +113,7 @@ function App() {
   }, [centrifuge])
 
   const processHistory = (history) => {
+    const currentPlace = myPlaceRef.current
     let firstTaken = false
     let secondTaken = false
     let gameStarted = false
@@ -155,7 +168,14 @@ function App() {
     }))
 
     if (gameStarted) {
-      setGameState('spectating')
+      if (!currentPlace) {
+        setGameState('spectating')
+      } else {
+        setGameState('playing')
+      }
+    } else {
+      // No active game, stay in lobby
+      setGameState('lobby')
     }
   }
 
@@ -180,8 +200,9 @@ function App() {
         break
         
       case 'game_started':
+        const place = myPlaceRef.current
         setLobbyStatus(prev => ({ ...prev, gameStarted: true }))
-        if (!myPlace) {
+        if (!place) {
           setGameState('spectating')
         } else {
           setGameState('playing')
@@ -241,6 +262,7 @@ function App() {
       console.log('Joined as', place, data)
 
       setMyPlace(place)
+      myPlaceRef.current = place  // Update ref immediately
 
       // Disconnect, set token, and reconnect with authenticated user
       centrifuge.disconnect()
