@@ -226,8 +226,24 @@ function App() {
         break
         
       case 'game_ended':
+        console.log('Game ended, cleaning up...')
+        
+        // Cleanup private subscription if exists
+        if (privateSub && centrifuge) {
+          privateSub.unsubscribe()
+          centrifuge.removeSubscription(privateSub)
+        }
+        
+        // Reset connection to anonymous
+        if (centrifuge) {
+          centrifuge.disconnect()
+          centrifuge.setToken('')  // Clear token
+          centrifuge.connect()      // Reconnect anonymously
+        }
+        
         setLobbyStatus({ firstTaken: false, secondTaken: false, gameStarted: false })
         setMyPlace(null)
+        myPlaceRef.current = null
         setPrivateSub(null)
         setGameState('lobby')
         setGameData(prev => ({
@@ -264,6 +280,14 @@ function App() {
       setMyPlace(place)
       myPlaceRef.current = place  // Update ref immediately
 
+      // Cleanup any existing private subscription first
+      const existingPrivateSub = centrifuge.getSubscription(data.private_channel)
+      if (existingPrivateSub) {
+        console.log('Removing existing private subscription')
+        existingPrivateSub.unsubscribe()
+        centrifuge.removeSubscription(existingPrivateSub)
+      }
+      
       // Disconnect, set token, and reconnect with authenticated user
       centrifuge.disconnect()
       centrifuge.setToken(data.connection_token)
@@ -314,11 +338,21 @@ function App() {
         },
       })
       
-      if (privateSub) {
+      // Cleanup private subscription
+      if (privateSub && centrifuge) {
         privateSub.unsubscribe()
+        centrifuge.removeSubscription(privateSub)
+      }
+      
+      // Reset connection to anonymous
+      if (centrifuge) {
+        centrifuge.disconnect()
+        centrifuge.setToken('')
+        centrifuge.connect()
       }
       
       setMyPlace(null)
+      myPlaceRef.current = null
       setPrivateSub(null)
       setGameState('lobby')
     } catch (error) {

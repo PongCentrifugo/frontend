@@ -195,7 +195,8 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
         client_ts_ms: Date.now(),
       })
       
-      if (result.data.game_ended) {
+      // Check if game ended (result has the RPC response data directly)
+      if (result?.data?.game_ended) {
         console.log('Game ended! Winner:', result.data.winner)
       }
       // Ball will be reset automatically when the goal event updates the score
