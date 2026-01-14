@@ -14,7 +14,8 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
     y: GAME_CONFIG.PLAYFIELD_HEIGHT / 2,
     vx: 0,
     vy: 0,
-    active: false
+    active: false,
+    lastUpdate: Date.now()
   })
 
   // Calculate canvas size with 30% side margins and 20% top/bottom margins
@@ -89,8 +90,8 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
   }, [gameData.firstScore, gameData.secondScore])
 
   // Ball physics loop (all players simulate deterministically)
+  // Using setInterval instead of requestAnimationFrame so it runs even when tab is inactive
   useEffect(() => {
-
     const interval = setInterval(() => {
       const ball = ballState.current
       if (!ball.active) return
@@ -217,7 +218,8 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
       y: GAME_CONFIG.PLAYFIELD_HEIGHT / 2,
       vx: direction * speed * Math.cos(angle),
       vy: speed * Math.sin(angle),
-      active: true
+      active: true,
+      lastUpdate: Date.now()
     }
   }
 

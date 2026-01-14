@@ -167,14 +167,16 @@ function App() {
       secondPaddleY: latestPositions.second,
     }))
 
+    // Set game state based on history
     if (gameStarted) {
+      // Game is active
       if (!currentPlace) {
         setGameState('spectating')
       } else {
         setGameState('playing')
       }
     } else {
-      // No active game, stay in lobby
+      // No active game - stay in lobby
       setGameState('lobby')
     }
   }
