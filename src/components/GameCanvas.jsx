@@ -18,6 +18,14 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
     lastUpdate: Date.now()
   })
 
+  // Interpolated ball position for smooth rendering (Player 2 and spectators)
+  const ballDisplay = useRef({
+    x: GAME_CONFIG.PLAYFIELD_WIDTH / 2,
+    y: GAME_CONFIG.PLAYFIELD_HEIGHT / 2,
+    targetX: GAME_CONFIG.PLAYFIELD_WIDTH / 2,
+    targetY: GAME_CONFIG.PLAYFIELD_HEIGHT / 2,
+  })
+
   // Calculate canvas size with 30% side margins and 20% top/bottom margins
   useEffect(() => {
     const updateSize = () => {
@@ -92,14 +100,42 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
   // Sync ball position from gameData for non-first players
   useEffect(() => {
     if (myPlace !== 'first' && gameData.ballX !== undefined && gameData.ballY !== undefined) {
-      ballState.current.x = gameData.ballX
-      ballState.current.y = gameData.ballY
+      // Update target position for interpolation
+      ballDisplay.current.targetX = gameData.ballX
+      ballDisplay.current.targetY = gameData.ballY
+      
+      // On first update, snap to position (avoid interpolating from center)
+      const isFirstUpdate = ballDisplay.current.x === GAME_CONFIG.PLAYFIELD_WIDTH / 2 && 
+                           ballDisplay.current.y === GAME_CONFIG.PLAYFIELD_HEIGHT / 2
+      if (isFirstUpdate) {
+        ballDisplay.current.x = gameData.ballX
+        ballDisplay.current.y = gameData.ballY
+      }
     }
   }, [myPlace, gameData.ballX, gameData.ballY])
 
-  // Ball physics loop (all players simulate deterministically)
+  // Smooth interpolation loop for Player 2 and spectators
+  useEffect(() => {
+    if (myPlace === 'first') return // First player doesn't need interpolation
+
+    const interval = setInterval(() => {
+      const display = ballDisplay.current
+      const lerpFactor = 0.3 // Higher = faster catch-up (0.3 = smooth)
+
+      // Lerp towards target position
+      display.x += (display.targetX - display.x) * lerpFactor
+      display.y += (display.targetY - display.y) * lerpFactor
+    }, GAME_CONFIG.TICK_RATE)
+
+    return () => clearInterval(interval)
+  }, [myPlace])
+
+  // Ball physics loop (ONLY first player - others sync from move events)
   // Using setInterval instead of requestAnimationFrame so it runs even when tab is inactive
   useEffect(() => {
+    // Only first player simulates ball physics
+    if (myPlace !== 'first') return
+
     const interval = setInterval(() => {
       const ball = ballState.current
       if (!ball.active) return
@@ -142,19 +178,15 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
         ball.x = rightPaddleX - BALL_WIDTH
       }
 
-      // Goal detection (both players can report - backend will handle duplicates)
+      // Goal detection (only first player reports since only they simulate)
       if (ball.x < 0) {
         // Second player scored
         ball.active = false
-        if (!isSpectator) {
-          sendGoal('second')
-        }
+        sendGoal('second')
       } else if (ball.x + BALL_WIDTH > PLAYFIELD_WIDTH) {
         // First player scored
         ball.active = false
-        if (!isSpectator) {
-          sendGoal('first')
-        }
+        sendGoal('first')
       }
     }, GAME_CONFIG.TICK_RATE)
 
@@ -181,6 +213,23 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
 
     return () => clearInterval(interval)
   }, [isSpectator, centrifuge])
+
+  // Ball position broadcast (only first player)
+  const lastBallBroadcast = useRef(0)
+  useEffect(() => {
+    if (myPlace !== 'first' || isSpectator) return
+
+    const interval = setInterval(() => {
+      const now = Date.now()
+      // Broadcast ball position every 100ms (10Hz) even without paddle movement
+      if (now - lastBallBroadcast.current >= 100 && ballState.current.active) {
+        sendMove(0) // Send with dy=0 to just update ball position
+        lastBallBroadcast.current = now
+      }
+    }, 50)
+
+    return () => clearInterval(interval)
+  }, [myPlace, isSpectator])
 
   const sendMove = async (dy) => {
     if (!centrifuge) return
@@ -276,9 +325,9 @@ export default function GameCanvas({ gameData, myPlace, isSpectator, centrifuge,
         PADDLE_HEIGHT
       )
 
-      // Ball - first player uses local simulation, others sync from gameData
-      const ballX = myPlace === 'first' ? ballState.current.x : (gameData.ballX || ballState.current.x)
-      const ballY = myPlace === 'first' ? ballState.current.y : (gameData.ballY || ballState.current.y)
+      // Ball - first player uses physics simulation, others use interpolated display
+      const ballX = myPlace === 'first' ? ballState.current.x : ballDisplay.current.x
+      const ballY = myPlace === 'first' ? ballState.current.y : ballDisplay.current.y
       
       ctx.fillRect(
         ballX,
