@@ -27,8 +27,15 @@ npm run dev
 
 ## Requirements
 
-- **Centrifugo** running on `ws://localhost:8000`
-- **Backend API** running on `http://localhost:8080`
+Local:
+- **Centrifugo** `ws://localhost:8000`
+- **Backend API** `http://localhost:8080`
+
+Production:
+- Set `VITE_CENTRIFUGO_URL` and `VITE_BACKEND_URL` before build.
+- Example:
+  - `VITE_CENTRIFUGO_URL=wss://<centrifugo-lb-host>/connection/websocket`
+  - `VITE_BACKEND_URL=https://<backend-lb-host>`
 
 See `../iac/centrifugo/` and `../pong-backend/` for setup.
 
