@@ -1,9 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { Centrifuge } from 'centrifuge'
 import { API_CONFIG, CHANNELS } from './config'
+import Navbar from './components/Navbar'
+import Footer from './components/Footer'
 import GameCanvas from './components/GameCanvas'
 import LobbyScreen from './components/LobbyScreen'
 import './App.css'
+import './components/Navbar.css'
+import './components/Footer.css'
 
 function App() {
   const [centrifuge, setCentrifuge] = useState(null)
@@ -419,6 +423,8 @@ function App() {
 
   return (
     <div className="app">
+      <Navbar />
+      
       {gameState === 'connecting' && (
         <div className="connecting">Connecting...</div>
       )}
@@ -440,6 +446,8 @@ function App() {
           onLeave={leaveGame}
         />
       )}
+      
+      <Footer />
     </div>
   )
 }
