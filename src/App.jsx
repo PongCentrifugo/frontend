@@ -351,24 +351,29 @@ function App() {
       centrifuge.disconnect()
       centrifuge.setToken(data.connection_token)
       
-      // Subscribe to private channel with subscription token
-      const privateSub = centrifuge.newSubscription(data.private_channel, {
-        token: data.subscribe_token,
-      })
+      // Wait for connection to establish before subscribing
+      const onConnected = () => {
+        centrifuge.off('connected', onConnected)
+        
+        // Subscribe to private channel with subscription token
+        const newPrivateSub = centrifuge.newSubscription(data.private_channel, {
+          token: data.subscribe_token,
+        })
 
-      privateSub.on('subscribed', () => {
-        console.log('Subscribed to private channel')
-      })
+        newPrivateSub.on('subscribed', () => {
+          console.log('Subscribed to private channel')
+        })
 
-      privateSub.on('publication', (ctx) => {
-        console.log('Private event:', ctx.data)
-        handlePrivateEvent(ctx.data)
-      })
+        newPrivateSub.on('publication', (ctx) => {
+          console.log('Private event:', ctx.data)
+          handlePrivateEvent(ctx.data)
+        })
 
-      privateSub.subscribe()
-      setPrivateSub(privateSub)
+        newPrivateSub.subscribe()
+        setPrivateSub(newPrivateSub)
+      }
       
-      // Reconnect with new token
+      centrifuge.on('connected', onConnected)
       centrifuge.connect()
 
     } catch (error) {

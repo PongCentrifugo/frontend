@@ -49,8 +49,13 @@ jobs:
         run: |
           aws s3 sync dist "s3://$S3_BUCKET" --delete
 
-      - name: Invalidate CloudFront
+      - name: Invalidate CloudFront (optional)
         env:
           DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
         run: |
-          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths "/*"
+          if [ -n "$DISTRIBUTION_ID" ]; then
+            echo "Invalidating CloudFront distribution: $DISTRIBUTION_ID"
+            aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths "/*"
+          else
+            echo "Skipping CloudFront invalidation (CLOUDFRONT_DISTRIBUTION_ID not set)"
+          fi
