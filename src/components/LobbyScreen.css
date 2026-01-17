@@ -4,52 +4,98 @@
 }
 
 .lobby-title {
-  font-size: 72px;
-  font-weight: bold;
-  margin-bottom: 40px;
-  letter-spacing: 12px;
-  text-shadow: 0 0 20px #fff;
+  font-size: 56px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  letter-spacing: 16px;
+  color: #fff;
 }
 
 .lobby-status {
-  font-size: 18px;
-  margin-bottom: 40px;
-  min-height: 30px;
+  font-size: 15px;
+  font-weight: 500;
+  margin-bottom: 32px;
+  min-height: 24px;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 0.3px;
+}
+
+.lobby-demo-area {
+  position: relative;
+  display: inline-block;
+  margin-bottom: 32px;
+}
+
+.demo-canvas {
+  display: block;
 }
 
 .lobby-buttons {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
-  gap: 30px;
+  gap: 24px;
   justify-content: center;
-  margin-bottom: 60px;
+  z-index: 10;
 }
 
-.place-button {
-  background: #fff;
-  color: #000;
-  border: 3px solid #fff;
-  padding: 20px 40px;
-  font-size: 18px;
-  font-weight: bold;
-  letter-spacing: 2px;
-  transition: all 0.2s;
+.play-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 20px 48px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
-.place-button:hover:not(:disabled) {
-  background: #000;
-  color: #fff;
-  box-shadow: 0 0 20px #fff;
+.play-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: scale(1.02);
 }
 
-.place-button:disabled {
-  background: #333;
-  color: #666;
-  border-color: #666;
+.play-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.play-button.taken {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.08);
   cursor: not-allowed;
 }
 
+.button-label {
+  font-size: 17px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.3px;
+}
+
+.play-button.taken .button-label {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.button-sublabel {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 0.2px;
+}
+
+.play-button.taken .button-sublabel {
+  color: rgba(74, 222, 128, 0.8);
+}
+
 .lobby-info {
-  font-size: 14px;
-  color: #888;
-  line-height: 1.8;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.35);
+  letter-spacing: 0.3px;
 }
