@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -34,14 +34,71 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     
     <!-- Theme Color -->
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#0a0a0a" />
     
-    <!-- Preconnect for performance -->
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#135bec",
+            },
+            fontFamily: {
+              display: ["Inter", "sans-serif"],
+            },
+          },
+        },
+      }
+    </script>
+    
+    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    
+    <!-- Custom Styles -->
+    <style>
+      body {
+        background-color: #0a0a0a;
+        color: white;
+        font-family: 'Inter', sans-serif;
+        overflow: hidden;
+      }
+      
+      .glass-nav {
+        background: rgba(10, 10, 10, 0.7);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      
+      .glass-button {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      }
+      
+      .glass-button:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        transform: translateY(-2px);
+      }
+      
+      .glow-button {
+        box-shadow: 0 0 20px rgba(19, 91, 236, 0.3);
+      }
+      
+      .glow-button:hover {
+        box-shadow: 0 0 30px rgba(19, 91, 236, 0.5);
+      }
+    </style>
   </head>
-  <body>
+  <body class="bg-[#0a0a0a] font-display">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

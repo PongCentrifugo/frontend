@@ -6,8 +6,6 @@ import Footer from './components/Footer'
 import GameCanvas from './components/GameCanvas'
 import LobbyScreen from './components/LobbyScreen'
 import './App.css'
-import './components/Navbar.css'
-import './components/Footer.css'
 
 function App() {
   const [centrifuge, setCentrifuge] = useState(null)
