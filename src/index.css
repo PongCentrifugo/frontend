@@ -1,3 +1,10 @@
+@font-face {
+  font-family: 'Stabalmo';
+  src: url('./font.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+}
+
 * {
   margin: 0;
   padding: 0;
